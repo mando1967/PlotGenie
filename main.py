@@ -7,10 +7,10 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QLabel, QSpinBox,
     QMenuBar, QMenu, QAction, QFileDialog, QTabWidget,
-    QTableView
+    QTableView, QSizePolicy, QLineEdit, QFontDialog
 )
 from PyQt5.QtCore import Qt, QAbstractTableModel
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QFont
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -76,6 +76,87 @@ class PlotCanvas(FigureCanvas):
         self.axes.set_title('Plot View')
         self.draw()
 
+class CustomLineEdit(QLineEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # Set default font
+        self.setFont(QFont("Arial", 10))
+
+    def show_context_menu(self, pos):
+        context_menu = QMenu(self)
+        
+        # Font submenu
+        font_menu = QMenu("Font", self)
+        
+        # Font size actions
+        size_menu = QMenu("Size", self)
+        sizes = [8, 10, 12, 14, 16, 18, 20]
+        for size in sizes:
+            action = QAction(f"{size}pt", self)
+            action.triggered.connect(lambda checked, s=size: self.change_font_size(s))
+            size_menu.addAction(action)
+        
+        # Font family action
+        select_font_action = QAction("Select Font...", self)
+        select_font_action.triggered.connect(self.select_font)
+        
+        # Add submenus and actions
+        font_menu.addMenu(size_menu)
+        font_menu.addAction(select_font_action)
+        context_menu.addMenu(font_menu)
+        
+        # Add standard context menu items
+        context_menu.addSeparator()
+        
+        # Standard edit actions
+        undo_action = QAction("Undo", self)
+        undo_action.triggered.connect(self.undo)
+        undo_action.setEnabled(self.isUndoAvailable())
+        
+        redo_action = QAction("Redo", self)
+        redo_action.triggered.connect(self.redo)
+        redo_action.setEnabled(self.isRedoAvailable())
+        
+        cut_action = QAction("Cut", self)
+        cut_action.triggered.connect(self.cut)
+        cut_action.setEnabled(self.hasSelectedText())
+        
+        copy_action = QAction("Copy", self)
+        copy_action.triggered.connect(self.copy)
+        copy_action.setEnabled(self.hasSelectedText())
+        
+        paste_action = QAction("Paste", self)
+        paste_action.triggered.connect(self.paste)
+        paste_action.setEnabled(QApplication.clipboard().text() != '')
+        
+        select_all_action = QAction("Select All", self)
+        select_all_action.triggered.connect(self.selectAll)
+        select_all_action.setEnabled(len(self.text()) > 0)
+        
+        context_menu.addAction(undo_action)
+        context_menu.addAction(redo_action)
+        context_menu.addSeparator()
+        context_menu.addAction(cut_action)
+        context_menu.addAction(copy_action)
+        context_menu.addAction(paste_action)
+        context_menu.addAction(select_all_action)
+        
+        # Show the menu
+        context_menu.exec_(self.mapToGlobal(pos))
+    
+    def change_font_size(self, size):
+        font = self.font()
+        font.setPointSize(size)
+        self.setFont(font)
+    
+    def select_font(self):
+        font, ok = QFontDialog.getFont(self.font(), self)
+        if ok:
+            self.setFont(font)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -98,46 +179,42 @@ class MainWindow(QMainWindow):
         
         # Create Plot tab
         plot_tab = QWidget()
-        plot_layout = QVBoxLayout(plot_tab)  # Changed to QVBoxLayout for toolbar
-        
-        # Create horizontal layout for controls and plot
-        plot_content = QWidget()
-        plot_content_layout = QHBoxLayout(plot_content)
-        
-        # Left panel for controls
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        
-        # Add controls
-        plot_button = QPushButton("Update Plot")
-        plot_button.clicked.connect(self.update_plot)
-        
-        points_label = QLabel("Number of Points:")
-        self.points_spin = QSpinBox()
-        self.points_spin.setRange(10, 1000)
-        self.points_spin.setValue(100)
-        
-        left_layout.addWidget(plot_button)
-        left_layout.addWidget(points_label)
-        left_layout.addWidget(self.points_spin)
-        left_layout.addStretch()
-        
+        plot_layout = QVBoxLayout(plot_tab)
+        plot_layout.setContentsMargins(0, 0, 0, 0)  
+        plot_layout.setSpacing(0)  
+
         # Create the plotting canvas
         self.plot_canvas = PlotCanvas(self)
+        self.plot_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)  
         
-        # Create the navigation toolbar
+        # Create the navigation toolbar and center it
+        toolbar_container = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar_container)
         self.toolbar = NavigationToolbar(self.plot_canvas, self)
+        toolbar_layout.addWidget(self.toolbar, alignment=Qt.AlignCenter)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Add toolbar to plot layout
-        plot_layout.addWidget(self.toolbar)
-        
-        # Add widgets to plot content layout
-        plot_content_layout.addWidget(left_panel, stretch=1)
-        plot_content_layout.addWidget(self.plot_canvas, stretch=4)
-        
-        # Add plot content to main plot layout
-        plot_layout.addWidget(plot_content)
-        
+        # Add widgets to plot layout
+        plot_layout.addWidget(toolbar_container)
+        plot_layout.addWidget(self.plot_canvas)
+
+        # Create equation input interface
+        equation_container = QWidget()
+        equation_layout = QHBoxLayout(equation_container)
+        equation_layout.setContentsMargins(10, 5, 10, 5)
+
+        equation_label = QLabel("f(x) = ")
+        self.equation_input = CustomLineEdit()
+        self.equation_input.setPlaceholderText("Enter mathematical equation (e.g., sin(x) + x**2)")
+        plot_equation_button = QPushButton("Plot")
+        plot_equation_button.clicked.connect(self.plot_equation)
+
+        equation_layout.addWidget(equation_label)
+        equation_layout.addWidget(self.equation_input, stretch=1)
+        equation_layout.addWidget(plot_equation_button)
+
+        plot_layout.addWidget(equation_container)
+
         # Create Data tab
         data_tab = QWidget()
         data_layout = QVBoxLayout(data_tab)
@@ -223,6 +300,56 @@ class MainWindow(QMainWindow):
             self.plot_canvas.axes.plot(x, y)
             self.plot_canvas.axes.set_title('Sample Plot')
             self.plot_canvas.draw()
+
+    def convert_to_latex(self, equation):
+        # Dictionary of replacements for LaTeX formatting
+        replacements = {
+            'sin': r'\sin',
+            'cos': r'\cos',
+            'tan': r'\tan',
+            'exp': r'\exp',
+            'log': r'\ln',
+            '**2': '^2',
+            '**3': '^3',
+            '**': '^',
+            '*': r'\cdot ',
+            'sqrt': r'\sqrt',
+            'pi': r'\pi'
+        }
+        
+        latex_eq = equation
+        for old, new in replacements.items():
+            latex_eq = latex_eq.replace(old, new)
+        
+        return f'$f(x) = {latex_eq}$'
+
+    def plot_equation(self):
+        equation = self.equation_input.text()
+        try:
+            x = np.linspace(-10, 10, 400)
+            # Add more numpy functions to the evaluation namespace
+            namespace = {
+                'x': x,
+                'sin': np.sin,
+                'cos': np.cos,
+                'tan': np.tan,
+                'exp': np.exp,
+                'log': np.log,
+                'sqrt': np.sqrt,
+                'pi': np.pi
+            }
+            y = eval(equation, namespace)
+            self.plot_canvas.axes.clear()
+            self.plot_canvas.axes.plot(x, y)
+            
+            # Set title with LaTeX equation
+            latex_equation = self.convert_to_latex(equation)
+            self.plot_canvas.axes.set_title(latex_equation, fontsize=12, pad=10)
+            
+            self.plot_canvas.draw()
+        except Exception as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error", f"Error plotting equation: {str(e)}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
